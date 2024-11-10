@@ -1,0 +1,114 @@
+---
+- name: Install Docker and configure it to start on boot
+  hosts: all
+  become: yes  # Ensure tasks run with root privileges
+
+  tasks:
+    # Step 1: Install required dependencies
+    - name: Install required dependencies for Docker
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+        state: present
+        update_cache: yes
+
+    # Step 2: Add Docker GPG key
+    - name: Add Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    # Step 3: Add Docker APT repository
+    - name: Add Docker APT repository
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable
+        state: present
+
+    # Step 4: Install Docker
+    - name: Install Docker
+      apt:
+        name: docker-ce
+        state: latest
+        update_cache: yes
+
+    # Step 5: Enable Docker to start on boot
+    - name: Enable Docker to start at boot
+      systemd:
+        name: docker
+        enabled: yes
+        state: started
+    
+    # Step 6: Create directory for Flask app
+    - name: Create directory for Flask app
+      file:
+        path: /opt/flask_web_app
+        state: directory
+        mode: '0755'
+
+    # Step 7: Upload Flask application file
+    - name: Upload Flask app file
+      copy:
+        dest: /opt/flask_web_app/app.py
+        content: |
+          from flask import Flask
+
+          app = Flask(__name__)
+
+          @app.route('/')
+          def home():
+              return """
+              <html>
+                <head>
+                  <title>Hello, Flask!</title>
+                </head>
+                <body>
+                  <h1>Hello, World!</h1>
+                  <p>Welcome to your Flask-powered webpage!</p>
+                </body>
+              </html>
+              """
+
+          if __name__ == '__main__':
+              app.run(debug=True, host='0.0.0.0')
+
+    # Step 8: Upload the Dockerfile
+    - name: Upload Dockerfile
+      copy:
+        dest: /opt/flask_web_app/Dockerfile
+        content: |
+          # Use an official Python runtime as a parent image
+          FROM python:3.9-slim
+
+          # Set the working directory in the container
+          WORKDIR /app
+
+          # Copy the current directory contents into the container
+          COPY . /app
+
+          # Install Flask
+          RUN pip install --no-cache-dir flask
+
+          # Expose the port Flask will run on
+          EXPOSE 5000
+
+          # Run the Flask app
+          CMD ["python", "app.py"]
+
+    # Step 9: Build the Docker image
+    - name: Build Docker image
+      command:
+        cmd: docker build -t flask-web-app .
+        chdir: /opt/flask_web_app
+
+    # Step 10: Run the Docker container
+    - name: Run Flask web container
+      docker_container:
+        name: flask_web_container
+        image: flask-web-app
+        state: started
+        ports:
+          - "5000:5000"
+        restart_policy: unless-stopped
